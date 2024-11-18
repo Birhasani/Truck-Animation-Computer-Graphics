@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Truck with Spinning Wheels and Background</title>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/MTLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <script>
+        let scene, camera, renderer, controls, truck, bak, bakPivot, wheels = [];
+        let rotationSpeed = 0.01;
+        let bakRotation = 0;
+        const maxRotation = Math.PI / 4; // Maximum rotation limit (45 degrees)
+        let truckSpeed = 0.1; // Speed of the truck
+        let truckDistance = 0; // Track distance the truck has traveled
+        const maxTruckDistance = 100; // Distance before the truck stops
+        let truckMoving = true; // Track if the truck is moving
+        let bakRotating = false; // Track if the bak is rotating
+        let focusTarget = new THREE.Vector3(0, 0, 0); // Initial focus target
+
+        // Approximate wheel radius (adjust as needed)
+        const wheelRadius = 0.3;
+
+        // Initialize scene and camera
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(30, 10, 100);
+
+        // Initialize renderer
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0xffffff);
+        document.body.appendChild(renderer.domElement);
+
+        // Add grid helper
+        const gridHelper = new THREE.GridHelper(50, 50);
+        scene.add(gridHelper);
+
+        // Add light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        var mesh = null;
+        // Load background (Desert Road)
+        const mtllLoader = new THREE.MTLLoader();
+        mtllLoader.load('Desert_Road_Plane.mtl', function (materials) {
+            materials.preload();
+            const objLoader = new THREE.OBJLoader();
+            objLoader.setMaterials(materials);
+            objLoader.load('Desert_Road_Plane.obj', function (object) {
+                 mesh = object;
+                 mesh.position.set(0, 362, 0);
+                
+                // Load additional textures
+                const textureLoader = new THREE.TextureLoader();
+                const diffuseTexture = textureLoader.load('Desert_Road_Diffuse.jpg');
+                const normalTexture = textureLoader.load('Desert_Road_Normal.jpg');
+                const specularTexture = textureLoader.load('Desert_Road_Specular.jpg');
+
+                // Apply textures manually to all child meshes
+                mesh.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material.map = diffuseTexture; // Diffuse map
+                        child.material.normalMap = normalTexture; // Normal map
+                        child.material.specularMap = specularTexture; // Specular map
+                        child.material.needsUpdate = true; // Ensure updates take effect
+                    }
+                });
+                scene.add( mesh );
+            });
+        });
+
+        // Load the truck model
+        const mtlLoader = new THREE.MTLLoader();
+        mtlLoader.load('ToyCar.mtl', (materials) => {
+            materials.preload();
+
+            const objLoader = new THREE.OBJLoader();
+            objLoader.setMaterials(materials);
+            objLoader.load('ToyCar.obj', (object) => {
+                truck = object;
+                truck.position.set(0, 0, 0);
+                truck.scale.set(50, 50, 50);
+                scene.add(truck);
+
+                truck.traverse((child) => {
+                    // Identify wheels by material name
+                    if (child.isMesh && child.material.name === 'WheelBlack') {
+                        wheels.push(child);
+                    }
+
+                    if (child.isMesh && child.material.name === 'RedPaint.001') {
+                        bak = child;
+                    }
+                });
+
+                if (bak) {
+                    // Create a pivot for the bak
+                    bakPivot = new THREE.Group();
+                    truck.add(bakPivot);
+
+                    // Get the world position of the bak
+                    const bakWorldPosition = new THREE.Vector3();
+                    bak.getWorldPosition(bakWorldPosition);
+                    truck.worldToLocal(bakWorldPosition);
+
+                    // Set the pivot to the back of the bak
+                    bakPivot.position.copy(bakWorldPosition);
+                    bakPivot.position.z -= 0;
+                    bakPivot.position.y += 0;
+
+                    // Add the bak to the pivot group
+                    bakPivot.add(bak);
+
+                    // Reset bak's position relative to the pivot
+                    bak.position.set(0, 0, 0);
+
+                    // Optional: Add axes helper to visualize the pivot
+                    const axesHelper = new THREE.AxesHelper(5);
+                    bakPivot.add(axesHelper);
+                }
+            });
+        });
+
+        // Add controls
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Move truck forward
+            if (truck && truckMoving) {
+                truck.position.z += truckSpeed; // Move forward
+                truckDistance += truckSpeed;
+
+                // Rotate wheels based on distance traveled
+                const wheelRotation = truckSpeed / wheelRadius; // Calculate rotation angle
+                wheels.forEach((wheel) => {
+                    wheel.rotation.x -= wheelRotation; // Rotate wheel
+                });
+
+                // Stop the truck after reaching max distance
+                if (truckDistance >= maxTruckDistance) {
+                    truckMoving = false;
+                    bakRotating = true; // Start bak rotation after truck stops
+                }
+
+                // Update focus target to follow the truck
+                focusTarget.copy(truck.position);
+            }
+
+            // Rotate the bak
+            if (bakPivot && bakRotating && bakRotation < maxRotation) {
+                bakPivot.rotation.x -= rotationSpeed; // Rotate upward
+                bakRotation += rotationSpeed;
+
+                // Stop rotation after reaching max angle
+                if (bakRotation >= maxRotation) {
+                    bakRotating = false;
+                }
+            }
+            // Update camera to focus on the current focus target
+            controls.target.copy(focusTarget);
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+
+        animate(); // Start the animation loop
+    </script>
+</body>
+</html>
